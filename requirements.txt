@@ -1,0 +1,6 @@
+Django>=5.2,<7
+gunicorn==23.0.0
+whitenoise==6.9.0
+ai-edge-litert==2.3.0
+numpy>=2.0
+Pillow>=11.0
