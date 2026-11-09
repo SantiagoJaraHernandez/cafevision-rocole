@@ -1,0 +1,14 @@
+services:
+  - type: web
+    name: cafevision
+    runtime: python
+    plan: free
+    buildCommand: bash build.sh
+    startCommand: gunicorn config.wsgi:application --workers 1 --threads 4 --timeout 120
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.8
+      - key: DEBUG
+        value: "0"
+      - key: SECRET_KEY
+        generateValue: true
