@@ -1,0 +1,154 @@
+{% extends "diagnostico/base.html" %}
+{% block titulo %}Resultados del modelo{% endblock %}
+{% block contenido %}
+<section class="hero hero-compacto">
+  <div>
+    <p class="eyebrow">Evaluación sobre el conjunto de prueba ({{ m.n_test }} imágenes de plantas no vistas)</p>
+    <h1>Resultados del modelo</h1>
+    <p class="lead">{{ m.modelo }}. Las particiones se hicieron por planta (StratifiedGroupKFold) para que ninguna planta aparezca a la vez en entrenamiento y prueba.</p>
+  </div>
+  <div class="kpis">
+    <div class="kpi"><span class="kpi-v">{{ m.accuracy_test_pct }}%</span><span class="kpi-l">Accuracy</span></div>
+    <div class="kpi"><span class="kpi-v">{{ m.f1_macro_pct }}%</span><span class="kpi-l">F1 macro</span></div>
+    <div class="kpi"><span class="kpi-v">{{ m.f1_ponderado_pct }}%</span><span class="kpi-l">F1 ponderado</span></div>
+  </div>
+</section>
+
+<div class="grid-2">
+  <section class="tarjeta">
+    <h2>Gráfica 1 · Curva de accuracy</h2>
+    <p class="sub">Entrenamiento vs. validación por época en las tres fases. La línea verde marca la época cuyos pesos se conservaron (mejor val_loss).</p>
+    <div class="lienzo"><canvas id="gAcc"></canvas></div>
+  </section>
+  <section class="tarjeta">
+    <h2>Gráfica 2 · Curva de pérdida (loss)</h2>
+    <p class="sub">Entropía cruzada categórica en entrenamiento y validación.</p>
+    <div class="lienzo"><canvas id="gLoss"></canvas></div>
+  </section>
+  <section class="tarjeta">
+    <h2>Gráfica 3 · Matriz de confusión</h2>
+    <p class="sub">Filas: clase real · Columnas: clase predicha (conjunto de prueba).</p>
+    <div class="matriz-env"><table class="matriz" id="matriz"></table></div>
+  </section>
+  <section class="tarjeta">
+    <h2>Gráfica 4 · Precisión, recall y F1 por clase</h2>
+    <p class="sub">El ácaro rojo es la clase más difícil: solo tiene 167 imágenes en todo el dataset.</p>
+    <div class="lienzo"><canvas id="gClases"></canvas></div>
+  </section>
+  <section class="tarjeta ancho">
+    <h2>Gráfica 5 · Distribución de clases por partición</h2>
+    <p class="sub">El desbalance se compensó con pesos de clase (<code>class_weight="balanced"</code>) durante el entrenamiento.</p>
+    <div class="lienzo"><canvas id="gDist"></canvas></div>
+  </section>
+  <section class="tarjeta ancho">
+    <h2>Reporte de clasificación</h2>
+    <table class="tabla">
+      <thead><tr><th>Clase</th><th>Precisión</th><th>Recall</th><th>F1</th><th>Soporte</th></tr></thead>
+      <tbody id="tablaRep"></tbody>
+    </table>
+    <h3>Selección del modelo</h3>
+    <table class="tabla">
+      <thead><tr><th>Modelo</th><th>Accuracy validación</th><th>Accuracy prueba</th></tr></thead>
+      <tbody>
+        {% for nombre, r in m.comparacion_modelos.items %}
+        <tr><td>{{ nombre }}{% if nombre == m.archivo_origen %} <strong>(elegido)</strong>{% endif %}</td>
+            <td>{{ r.val }} %</td><td>{{ r.test }} %</td></tr>
+        {% endfor %}
+        <tr class="total"><td>{{ m.archivo_origen }} → TFLite cuantizado (desplegado)</td><td>—</td><td>{{ m.accuracy_test_pct }} %</td></tr>
+      </tbody>
+    </table>
+    <p class="sub">El modelo se eligió por su accuracy en validación. La versión TFLite con cuantización dinámica, que es la que corre en este servidor, obtuvo {{ m.accuracy_test_pct }} % en prueba; la diferencia frente al modelo Keras se debe al redondeo de los pesos a 8 bits.</p>
+  </section>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const M = {{ m_json|safe }};
+const C = M.clases.map(c => M.info[c]);
+const VERDE = '#2e7d32', CAFE = '#6d4c41';
+Chart.defaults.font.family = 'Inter, system-ui, sans-serif';
+Chart.defaults.color = '#4a4036';
+
+const H = M.historial;
+const ep = H.accuracy.map((_, i) => i + 1);
+const marcas = [
+  [H.epocas_fase1 + .5, 'Fase 2: fine-tuning', '#9e9e9e'],
+  [H.epocas_fase2 + .5, 'Fase 3: ajuste fino', '#9e9e9e'],
+  [H.mejor_epoca - 1, '★ modelo elegido', '#2e7d32'],
+];
+const lineaFT = {
+  id: 'lineaFT',
+  afterDraw(ch) {
+    const {top, bottom} = ch.chartArea, g = ch.ctx;
+    marcas.forEach(([ep, txt, col], k) => {
+      const x = ch.scales.x.getPixelForValue(ep);
+      g.save(); g.setLineDash(k === 2 ? [] : [5, 4]); g.strokeStyle = col; g.lineWidth = k === 2 ? 1.5 : 1;
+      g.beginPath(); g.moveTo(x, top); g.lineTo(x, bottom); g.stroke();
+      g.fillStyle = col; g.font = '11px Inter';
+      g.textAlign = 'right';
+      g.fillText(txt, k === 2 ? x - 4 : x - 4, k === 2 ? top + 12 : bottom - 6);
+      g.restore();
+    });
+  }
+};
+function curva(id, a, b, titulo) {
+  new Chart(document.getElementById(id), {
+    type: 'line',
+    data: { labels: ep, datasets: [
+      { label: 'Entrenamiento', data: H[a], borderColor: CAFE, backgroundColor: CAFE, tension: .25, pointRadius: 2 },
+      { label: 'Validación', data: H[b], borderColor: VERDE, backgroundColor: VERDE, tension: .25, pointRadius: 2 }
+    ]},
+    options: { maintainAspectRatio: false, interaction: { mode: 'index', intersect: false },
+      scales: { x: { title: { display: true, text: 'Época' } }, y: { title: { display: true, text: titulo } } } },
+    plugins: [lineaFT]
+  });
+}
+curva('gAcc', 'accuracy', 'val_accuracy', 'Accuracy');
+curva('gLoss', 'loss', 'val_loss', 'Loss');
+
+// Matriz de confusión como mapa de calor
+const mx = Math.max(...M.matriz.flat());
+let html = '<tr><th></th>' + C.map(c => `<th>${c.nombre}</th>`).join('') + '</tr>';
+M.matriz.forEach((fila, i) => {
+  const total = fila.reduce((a, b) => a + b, 0);
+  html += `<tr><th>${C[i].nombre}</th>` + fila.map((v, j) => {
+    const a = v / mx;
+    const fondo = i === j ? `rgba(46,125,50,${.12 + .88 * a})` : `rgba(198,40,40,${.08 + .9 * a})`;
+    const txt = a > .5 ? '#fff' : '#2b2118';
+    return `<td style="background:${fondo};color:${txt}"><strong>${v}</strong><small>${(100 * v / total).toFixed(0)}%</small></td>`;
+  }).join('') + '</tr>';
+});
+document.getElementById('matriz').innerHTML = html;
+
+// Métricas por clase
+const R = M.reporte;
+new Chart(document.getElementById('gClases'), {
+  type: 'bar',
+  data: { labels: C.map(c => c.nombre), datasets: [
+    { label: 'Precisión', data: M.clases.map(c => R[c].precision * 100), backgroundColor: '#8d6e63', borderRadius: 4 },
+    { label: 'Recall', data: M.clases.map(c => R[c].recall * 100), backgroundColor: '#c5a880', borderRadius: 4 },
+    { label: 'F1', data: M.clases.map(c => R[c]['f1-score'] * 100), backgroundColor: VERDE, borderRadius: 4 }
+  ]},
+  options: { maintainAspectRatio: false, scales: { y: { min: 0, max: 100, ticks: { callback: v => v + ' %' } } },
+    plugins: { tooltip: { callbacks: { label: c => `${c.dataset.label}: ${c.parsed.y.toFixed(1)} %` } } } }
+});
+
+// Distribución por partición
+const parts = ['train', 'val', 'test'], nomP = { train: 'Entrenamiento', val: 'Validación', test: 'Prueba' };
+new Chart(document.getElementById('gDist'), {
+  type: 'bar',
+  data: { labels: parts.map(p => nomP[p]), datasets: M.clases.map((c, i) => ({
+    label: C[i].nombre, data: parts.map(p => M.distribucion[p][c]), backgroundColor: C[i].color, borderRadius: 4 })) },
+  options: { maintainAspectRatio: false, scales: { y: { title: { display: true, text: 'Imágenes' } } } }
+});
+
+// Tabla
+document.getElementById('tablaRep').innerHTML = M.clases.map((c, i) =>
+  `<tr><td><span class="punto" style="background:${C[i].color}"></span>${C[i].nombre}</td>
+   <td>${(R[c].precision * 100).toFixed(1)} %</td><td>${(R[c].recall * 100).toFixed(1)} %</td>
+   <td>${(R[c]['f1-score'] * 100).toFixed(1)} %</td><td>${R[c].support}</td></tr>`).join('') +
+  `<tr class="total"><td>Promedio macro</td><td>${(R['macro avg'].precision * 100).toFixed(1)} %</td>
+   <td>${(R['macro avg'].recall * 100).toFixed(1)} %</td><td>${(R['macro avg']['f1-score'] * 100).toFixed(1)} %</td><td>${R['macro avg'].support}</td></tr>`;
+</script>
+{% endblock %}
