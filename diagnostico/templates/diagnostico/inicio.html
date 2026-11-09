@@ -1,0 +1,106 @@
+{% extends "diagnostico/base.html" %}
+{% block contenido %}
+<section class="hero">
+  <div>
+    <p class="eyebrow">Visión por computadora · Red neuronal convolucional</p>
+    <h1>Diagnóstico de hojas de café robusta</h1>
+    <p class="lead">Sube la foto de una hoja y el modelo (MobileNetV2 con <em>transfer learning</em>, entrenado con el dataset RoCoLe)
+      la clasifica como <strong>sana</strong>, con <strong>roya</strong> o con <strong>ácaro rojo</strong>.</p>
+  </div>
+  <div class="kpis">
+    <div class="kpi"><span class="kpi-v">{{ metricas.accuracy_test_pct }}%</span><span class="kpi-l">Accuracy en test</span></div>
+    <div class="kpi"><span class="kpi-v">{{ metricas.f1_macro_pct }}%</span><span class="kpi-l">F1 macro</span></div>
+    <div class="kpi"><span class="kpi-v">{{ metricas.n_test }}</span><span class="kpi-l">Imágenes de prueba</span></div>
+  </div>
+</section>
+
+<div class="grid-2">
+  <section class="tarjeta">
+    <h2>1. Sube una imagen</h2>
+    <form method="post" enctype="multipart/form-data" id="form">
+      {% csrf_token %}
+      <label class="zona" id="zona">
+        <input type="file" name="imagen" id="imagen" accept="image/jpeg,image/png,image/webp" required>
+        <img id="vista" alt="" hidden>
+        <span id="zona-texto">
+          <strong>Haz clic o arrastra la foto aquí</strong><br>
+          <small>JPG, PNG o WEBP · máx. 8 MB · una hoja centrada y bien iluminada</small>
+        </span>
+      </label>
+      {% if error %}<p class="error">{{ error }}</p>{% endif %}
+      <button type="submit" class="boton" id="boton">Analizar hoja</button>
+    </form>
+  </section>
+
+  <section class="tarjeta">
+    <h2>2. Resultado</h2>
+    {% if resultado %}
+      <div class="resultado" style="--c: {{ resultado.prediccion.color }}">
+        <img src="{{ imagen_b64 }}" alt="Hoja analizada" class="mini">
+        <div>
+          <p class="etiqueta">Predicción</p>
+          <p class="clase">{{ resultado.prediccion.nombre }}</p>
+          <p class="conf">Confianza: <strong>{{ resultado.prediccion.probabilidad }}%</strong></p>
+        </div>
+      </div>
+      <p>{{ resultado.prediccion.descripcion }}</p>
+      <p class="reco"><strong>Sugerencia:</strong> {{ resultado.prediccion.recomendacion }}</p>
+      {% if resultado.prediccion.probabilidad < 60 %}
+        <p class="aviso">La confianza es baja: el modelo duda entre varias clases. Prueba con otra foto más nítida.</p>
+      {% endif %}
+      <h3>Probabilidad por clase</h3>
+      <div class="lienzo-corto"><canvas id="graficaProb"></canvas></div>
+    {% else %}
+      <div class="vacio">
+        <p>Aquí aparecerá la clase predicha, su probabilidad y la distribución de probabilidades entre las tres clases.</p>
+      </div>
+    {% endif %}
+  </section>
+</div>
+
+<p class="nota">Herramienta académica de apoyo. No reemplaza el diagnóstico de un agrónomo.</p>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  const input = document.getElementById('imagen');
+  const vista = document.getElementById('vista');
+  const texto = document.getElementById('zona-texto');
+  const zona = document.getElementById('zona');
+  input.addEventListener('change', () => {
+    const f = input.files[0];
+    if (!f) return;
+    vista.src = URL.createObjectURL(f);
+    vista.hidden = false;
+    texto.innerHTML = '<small>' + f.name + '</small>';
+  });
+  ['dragover', 'dragenter'].forEach(e => zona.addEventListener(e, ev => { ev.preventDefault(); zona.classList.add('sobre'); }));
+  ['dragleave', 'drop'].forEach(e => zona.addEventListener(e, () => zona.classList.remove('sobre')));
+  zona.addEventListener('drop', ev => {
+    ev.preventDefault();
+    input.files = ev.dataTransfer.files;
+    input.dispatchEvent(new Event('change'));
+  });
+  document.getElementById('form').addEventListener('submit', () => {
+    const b = document.getElementById('boton');
+    b.disabled = true; b.textContent = 'Analizando…';
+  });
+</script>
+{% if resultado %}
+<script>
+  const datos = {{ resultado_json|safe }};
+  new Chart(document.getElementById('graficaProb'), {
+    type: 'bar',
+    data: {
+      labels: datos.map(d => d.nombre),
+      datasets: [{ data: datos.map(d => d.probabilidad), backgroundColor: datos.map(d => d.color), borderRadius: 6 }]
+    },
+    options: {
+      indexAxis: 'y', maintainAspectRatio: false,
+      plugins: { legend: { display: false }, tooltip: { callbacks: { label: c => c.parsed.x.toFixed(2) + ' %' } } },
+      scales: { x: { min: 0, max: 100, ticks: { callback: v => v + ' %' } }, y: { grid: { display: false } } }
+    }
+  });
+</script>
+{% endif %}
+{% endblock %}
