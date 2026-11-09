@@ -54,11 +54,34 @@ def _cargar():
     return interp, clases
 
 
+def _indices(n_out, n_in):
+    escala = n_in / n_out
+    x = (np.arange(n_out) + 0.5) * escala - 0.5
+    piso = np.floor(x)
+    bajo = np.clip(piso, 0, n_in - 1).astype(int)
+    alto = np.clip(np.ceil(x), 0, n_in - 1).astype(int)
+    return bajo, alto, (x - piso).astype(np.float32)
+
+
+def redimensionar_como_tf(a: np.ndarray, alto=224, ancho=224) -> np.ndarray:
+    """Interpolación bilineal idéntica a tf.image.resize (half_pixel_centers, sin antialias).
+
+    El modelo se entrenó con image_dataset_from_directory, que usa tf.image.resize.
+    PIL suaviza la imagen al reducirla (antialias) y eso bajaba el accuracy de
+    78,8 % a 74,6 %; con esta función la app reproduce el preprocesamiento original.
+    """
+    a = a.astype(np.float32)
+    y0, y1, ly = _indices(alto, a.shape[0])
+    x0, x1, lx = _indices(ancho, a.shape[1])
+    lx = lx[None, :, None]
+    arriba = a[y0][:, x0] * (1 - lx) + a[y0][:, x1] * lx
+    abajo = a[y1][:, x0] * (1 - lx) + a[y1][:, x1] * lx
+    return arriba * (1 - ly)[:, None, None] + abajo * ly[:, None, None]
+
+
 def preprocesar(archivo) -> np.ndarray:
-    img = Image.open(archivo)
-    img = ImageOps.exif_transpose(img).convert("RGB")
-    img = img.resize(TAMANO, Image.BILINEAR)
-    return np.asarray(img, dtype=np.float32)[None, ...]
+    img = ImageOps.exif_transpose(Image.open(archivo)).convert("RGB")
+    return redimensionar_como_tf(np.asarray(img), *TAMANO)[None, ...]
 
 
 def predecir(archivo) -> dict:
