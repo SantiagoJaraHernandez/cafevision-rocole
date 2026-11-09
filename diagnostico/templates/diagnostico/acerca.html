@@ -1,0 +1,46 @@
+{% extends "diagnostico/base.html" %}
+{% block titulo %}Metodología{% endblock %}
+{% block contenido %}
+<section class="hero hero-compacto">
+  <div>
+    <p class="eyebrow">Cómo se construyó el modelo</p>
+    <h1>Metodología</h1>
+    <p class="lead">Clasificación de imágenes de hojas de café robusta con una red neuronal convolucional preentrenada (transfer learning).</p>
+  </div>
+</section>
+
+<div class="grid-2">
+  <section class="tarjeta">
+    <h2>El problema</h2>
+    <p>La roya y el ácaro rojo reducen la productividad del café. Detectarlos a tiempo por inspección visual exige
+      personal entrenado y recorrer todo el cultivo. El objetivo es clasificar automáticamente una foto de hoja en tres clases:
+      <strong>sana</strong>, <strong>roya</strong> o <strong>ácaro rojo</strong>.</p>
+    <h2>Dataset: RoCoLe</h2>
+    <p><em>Robusta Coffee Leaf Images</em>: fotografías de hojas de café robusta tomadas en campo con smartphone,
+      etiquetadas por expertos. Versión de Kaggle con 1.560 imágenes: 791 sanas, 602 con roya y 167 con ácaro rojo.</p>
+  </section>
+
+  <section class="tarjeta">
+    <h2>Pipeline</h2>
+    <ol class="pasos">
+      <li><strong>Partición por planta.</strong> Las fotos de una misma planta (prefijo <code>C#P#</code>) quedan en una sola partición:
+        StratifiedGroupKFold → entrenamiento {{ m.distribucion_totales.train }}, validación {{ m.distribucion_totales.val }}, prueba {{ m.distribucion_totales.test }}. Así se evita fuga de datos.</li>
+      <li><strong>Preprocesamiento.</strong> Redimensionado a 224×224 y escalado de píxeles a [-1, 1].</li>
+      <li><strong>Aumento de datos.</strong> Volteos, rotación, zoom, contraste y brillo aleatorios.</li>
+      <li><strong>Desbalance.</strong> Pesos de clase balanceados (el ácaro rojo pesa ≈3,1 veces más).</li>
+      <li><strong>Fase 1.</strong> MobileNetV2 (ImageNet) congelada; se entrena solo la cabeza (GlobalAveragePooling + Dropout 0,3 + Dense softmax), Adam 1e-3.</li>
+      <li><strong>Fase 2 · Fine-tuning.</strong> Se descongelan las últimas 30 capas de MobileNetV2 y se entrena con Adam 1e-5, EarlyStopping y ReduceLROnPlateau.</li>
+      <li><strong>Fase 3 · Ajuste fino adicional.</strong> Se continúa con Adam 5e-5; EarlyStopping (paciencia 8) restaura los pesos con menor pérdida de validación.</li>
+      <li><strong>Selección del modelo.</strong> Entre los modelos guardados se eligió el de mejor accuracy en <em>validación</em>; el conjunto de prueba se usó solo para el reporte final.</li>
+      <li><strong>Despliegue.</strong> El modelo se convierte a TensorFlow Lite (≈2,5 MB) y se sirve con Django en Render.</li>
+    </ol>
+  </section>
+
+  <section class="tarjeta ancho">
+    <h2>API</h2>
+    <p>Además de la interfaz web, la app expone un endpoint para integrarla con otros sistemas:</p>
+    <pre><code>curl -X POST -F "imagen=@hoja.jpg" {{ request.scheme }}://{{ request.get_host }}/api/predecir/</code></pre>
+    <p class="sub">Respuesta JSON con la clase predicha y la probabilidad de cada clase.</p>
+  </section>
+</div>
+{% endblock %}
