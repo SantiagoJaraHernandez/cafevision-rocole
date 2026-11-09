@@ -21,7 +21,7 @@ Conjunto de prueba: 260 imágenes de plantas que el modelo no vio en el entrenam
 
 | Modelo | Accuracy validación | Accuracy prueba |
 |---|---|---|
-| `modelo_cafe_v2.keras` | 73,9 % | 76,1 % |
+| `modelo_cafe_v2.keras` | 73,8 % | 76,2 % |
 | `modelo_cafe_v3.keras` (elegido por validación) | 75,8 % | 76,5 % |
 | v3 → TFLite con cuantización dinámica (desplegado) | — | 78,8 % |
 
