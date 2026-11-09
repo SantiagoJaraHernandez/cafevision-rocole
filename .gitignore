@@ -1,0 +1,8 @@
+__pycache__/
+*.pyc
+staticfiles/
+.venv/
+venv/
+.env
+db.sqlite3
+diagnostico/static/diagnostico/chart.umd.min.js
